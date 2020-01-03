@@ -67,9 +67,9 @@ find_package(catkin REQUIRED COMPONENTS
 #   Action2.action
 # )
 
-find_package(catkin REQUIRED genmsg actionlib_msgs geometry_msgs)
+find_package(catkin REQUIRED genmsg actionlib_msgs)
 add_action_files(DIRECTORY action FILES Rosbag.action)
-generate_messages(DEPENDENCIES actionlib_msgs geometry_msgs)
+generate_messages(DEPENDENCIES actionlib_msgs)
 
 ## Generate added messages and services with any dependencies listed here
 # generate_messages(

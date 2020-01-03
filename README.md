@@ -14,6 +14,9 @@ chmod a+x rosbag_control/cfg/Rosbag.cfg
 # Build your workspace
 cd catkin_ws
 catkin_make
+
+# You'll probably also need to make the node executable
+chmod +x rosbag_control/src/rosbag_control
 ```
 
 ## Usage
