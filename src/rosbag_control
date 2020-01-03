@@ -1,0 +1,100 @@
+#! /usr/bin/env python
+
+import rospy
+# import tf
+import subprocess
+import os
+import signal
+import actionlib
+import time
+from dynamic_reconfigure.server import Server
+
+from std_msgs.msg import String
+import rosbag_control.msg
+from rosbag_control.cfg import RosbagConfig
+
+
+class RosbagAction(object):
+    # create messages that are used to publish feedback/result
+    _feedback = rosbag_control.msg.RosbagFeedback()
+    _result = rosbag_control.msg.RosbagResult()
+
+    dynamic_reconfigure = None
+
+    def __init__(self, name):
+        rospy.on_shutdown(self.stop_rosbag_handler)
+
+        # Listen to config changes
+        self.config_server = Server(RosbagConfig, self.dynamic_reconfigure_callback)
+
+        self._action_name = name
+        self._as = actionlib.SimpleActionServer(self._action_name, rosbag_control.msg.RosbagAction, execute_cb=self.execute_cb, auto_start = False)
+        self._as.start()
+      
+    def dynamic_reconfigure_callback(self, config, level):
+        rospy.loginfo("""Reconfigure Request: {rosbag_folder}""".format(**config))
+        self.dynamic_reconfigure = config
+        return config
+
+    def execute_cb(self, goal):
+        r = rospy.Rate(10)
+
+        # If there are still none return
+        if goal.arguments == None or not goal.arguments:
+            rospy.loginfo('%s: No arguments were provided, using -a as default' % self._action_name)
+
+        # The script
+        node_name = 'rosbag_control_' + time.strftime("%Y_%m_%d_%H_%M_%S")
+        command = 'source rosbag ' + goal.arguments + ' __name:=' + node_name
+
+        # publish info to the console for the user
+        rospy.loginfo('%s: Executing "%s"' % (self._action_name, command))
+        
+        # Start recording. See https://gist.github.com/marco-tranzatto/8be49b81b1ab371dcb5d4e350365398a
+        self.p = subprocess.Popen(command, stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           shell=True,
+                                           cwd=self.dynamic_reconfigure.rosbag_folder,
+                                           executable='/bin/bash')
+        
+        while not rospy.is_shutdown() and not self._as.is_preempt_requested and self.p.poll() == None:
+            # Publish stderr as feedback
+            stderrline = self.p.stderr.readline()
+            if stderrline:
+                self._feedback.stderr = stderrline.rstrip()
+                self._feedback.stdout = ""
+                self._as.publish_feedback(self._feedback)
+            
+            # Publish stdout as feedback
+            stdoutline = self.p.stdout.readline()
+            if stdoutline:
+                self._feedback.stderr = ""
+                self._feedback.stdout = stdoutline.rstrip()
+                self._as.publish_feedback(self._feedback)
+            
+            r.sleep()
+        
+        
+        rospy.loginfo('%s: Terminating record node "%s"' % (self._action_name, node_name))
+        self.terminate_ros_node('/' + node_name)
+        self._as.set_succeeded(self._result)
+
+    def terminate_ros_node(self, s):
+        # Adapted from http://answers.ros.org/question/10714/start-and-stop-rosbag-within-a-python-script/
+        list_cmd = subprocess.Popen("rosnode list", shell=True, stdout=subprocess.PIPE)
+        list_output = list_cmd.stdout.read()
+        retcode = list_cmd.wait()
+        assert retcode == 0, "List command returned %d" % retcode
+        for str in list_output.split("\n"):
+            if (str.startswith(s)):
+                os.system("rosnode kill " + str)
+
+    def stop_rosbag_handler(self):
+        rospy.loginfo(rospy.get_name() + ' stop recording.')
+        self.terminate_ros_node("/record")
+     
+if __name__ == '__main__':
+    rospy.init_node('rosbag_control')
+    server = RosbagAction(rospy.get_name())
+    rospy.spin()

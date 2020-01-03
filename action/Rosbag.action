@@ -1,0 +1,8 @@
+#goal definition
+string arguments
+---
+#result definition
+---
+#feedback
+string stdout
+string stderr
