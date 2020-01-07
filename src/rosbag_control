@@ -106,6 +106,7 @@ class RosbagAction(object):
         if self._action_name and self.node_name:
             rospy.loginfo('%s: Terminating record node "%s"' % (self._action_name, self.node_name))
             self.terminate_ros_node('/' + self.node_name)
+            self.node_name = None
 
 if __name__ == '__main__':
     rospy.init_node('rosbag_control')
