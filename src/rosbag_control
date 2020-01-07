@@ -23,7 +23,7 @@ class RosbagAction(object):
     dynamic_reconfigure = None
 
     def __init__(self, name):
-        rospy.on_shutdown(self.stop_rosbag_handler)
+        rospy.on_shutdown(self.stop_rosbag)
 
         # Listen to config changes
         self.config_server = Server(RosbagConfig, self.dynamic_reconfigure_callback)
@@ -35,52 +35,62 @@ class RosbagAction(object):
     def dynamic_reconfigure_callback(self, config, level):
         rospy.loginfo("""Reconfigure Request: {rosbag_folder}""".format(**config))
         self.dynamic_reconfigure = config
+
         return config
 
     def execute_cb(self, goal):
-        try:
-            r = rospy.Rate(10)
+        r = rospy.Rate(10)
 
-            # If there are still none return
-            if goal.arguments == None or not goal.arguments:
-                rospy.loginfo('%s: No arguments were provided, using -a as default' % self._action_name)
+        # If there are still none return
+        if goal.arguments == None or not goal.arguments:
+            rospy.loginfo('%s: No arguments were provided, using -a as default' % self._action_name)
 
-            # The script
-            node_name = 'rosbag_control_' + time.strftime("%Y_%m_%d_%H_%M_%S")
-            command = 'rosbag ' + goal.arguments + ' __name:=' + node_name
-
-            # publish info to the console for the user
-            rospy.loginfo('%s: Executing "%s"' % (self._action_name, command))
-            
-            # Start recording. See https://gist.github.com/marco-tranzatto/8be49b81b1ab371dcb5d4e350365398a
-            self.p = subprocess.Popen(command,
-                                            shell=True,
-                                            cwd=self.dynamic_reconfigure.rosbag_folder,
-                                            executable='/bin/bash')
-            
-            while not rospy.is_shutdown() and not self._as.is_preempt_requested() and self.p.poll() is None:
-                # Publish stderr as feedback
-                # stderrline = self.p.stderr.readline()
-                # if stderrline:
-                #     self._feedback.stderr = stderrline.rstrip()
-                #     self._feedback.stdout = ""
-                #     self._as.publish_feedback(self._feedback)
-                
-                # # Publish stdout as feedback
-                # stdoutline = self.p.stdout.readline()
-                # if stdoutline:
-                #     self._feedback.stderr = ""
-                #     self._feedback.stdout = stdoutline.rstrip()
-                #     self._as.publish_feedback(self._feedback)
-                
-                r.sleep()
-            
-            rospy.loginfo('%s: Terminating record node "%s"' % (self._action_name, node_name))
-            self.terminate_ros_node('/' + node_name)
-            self._as.set_succeeded(self._result)
+        # The script
+        self.node_name = 'rosbag_control_' + time.strftime("%Y_%m_%d_%H_%M_%S")
+        command = 'rosbag ' + goal.arguments + ' __name:=' + self.node_name
         
-        except:
-            self._as.set_aborted(self._result, sys.exc_info()[0])
+        # The folder
+        folder = goal.folder
+        if not folder.strip():
+            folder = self.dynamic_reconfigure.rosbag_folder
+        if not folder.strip():
+            rospy.logwarn('%s: Rosbag record folder is empty' % (self._action_name))
+            self._as.set_aborted(self._result, '%s: Rosbag record folder is empty' % (self._action_name))
+            return
+        elif not os.path.exists(folder):
+            rospy.logwarn('%s: Rosbag folder does not exist (%s)' % (self._action_name, self.dynamic_reconfigure.rosbag_folder))
+            self._as.set_aborted(self._result, '%s: Rosbag folder does not exist (%s)' % (self._action_name, self.dynamic_reconfigure.rosbag_folder))
+            return
+
+        # publish info to the console for the user
+        rospy.loginfo('%s: Executing "%s"' % (self._action_name, command))
+        
+        # Start recording. See https://gist.github.com/marco-tranzatto/8be49b81b1ab371dcb5d4e350365398a
+        self.p = subprocess.Popen(command,
+                                        shell=True,
+                                        cwd=folder,
+                                        executable='/bin/bash')
+        
+        while not rospy.is_shutdown() and not self._as.is_preempt_requested() and self.p.poll() is None:
+            # Publish stderr as feedback
+            # stderrline = self.p.stderr.readline()
+            # if stderrline:
+            #     self._feedback.stderr = stderrline.rstrip()
+            #     self._feedback.stdout = ""
+            #     self._as.publish_feedback(self._feedback)
+            
+            # # Publish stdout as feedback
+            # stdoutline = self.p.stdout.readline()
+            # if stdoutline:
+            #     self._feedback.stderr = ""
+            #     self._feedback.stdout = stdoutline.rstrip()
+            #     self._as.publish_feedback(self._feedback)
+            
+            r.sleep()
+        
+        self.stop_rosbag()
+        self._as.set_succeeded(self._result)
+        
 
     def terminate_ros_node(self, s):
         # Adapted from http://answers.ros.org/question/10714/start-and-stop-rosbag-within-a-python-script/
@@ -92,10 +102,11 @@ class RosbagAction(object):
             if (str.startswith(s)):
                 os.system("rosnode kill " + str)
 
-    def stop_rosbag_handler(self):
-        rospy.loginfo(rospy.get_name() + ' stop recording.')
-        self.terminate_ros_node("/record")
-     
+    def stop_rosbag(self):
+        if self._action_name and self.node_name:
+            rospy.loginfo('%s: Terminating record node "%s"' % (self._action_name, self.node_name))
+            self.terminate_ros_node('/' + self.node_name)
+
 if __name__ == '__main__':
     rospy.init_node('rosbag_control')
     server = RosbagAction(rospy.get_name())

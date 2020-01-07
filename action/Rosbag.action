@@ -1,5 +1,6 @@
 #goal definition
-string arguments
+string arguments    # The script arguments (rosbag ...)
+string folder       # If none is given, the folder is taken from dynamic_reconfigure
 ---
 #result definition
 ---
